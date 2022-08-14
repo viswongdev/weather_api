@@ -2,7 +2,8 @@
   class Weather {
     // DB stuff
     private $conn;
-    private $table = 'forecast_history';
+    private $forecast_table = 'forecast_histories';
+    private $alert_table = 'alerts';
     private $api_base_url = 'http://api.weatherapi.com/v1';
     private $api_key = '7d3f50cf71a94912bb681950220707';
 
@@ -60,7 +61,7 @@
         $this->weather_condition = $data->day->condition->text;
 
         $query = 'INSERT INTO ' .
-          $this->table .
+          $this->forecast_table .
           ' (search_type, search_params, request_made_at, date, weekday, weather_condition)
           VALUES (:search_type, :search_params, :request_made_at, :date, :weekday, :weather_condition)';
 
@@ -82,16 +83,15 @@
     }
 
     public function daily_check(){
-      $query = 'SELECT search_type, search_params, request_made_at, COUNT(*) as count FROM ' . $this->table . ' WHERE date >= DATE_SUB(CURDATE(), INTERVAL 14 DAY) GROUP BY search_params, request_made_at ';
+      $query = 'SELECT search_type, search_params, request_made_at, COUNT(*) as count FROM ' . $this->forecast_table . ' WHERE date >= DATE_SUB(CURDATE(), INTERVAL 14 DAY) GROUP BY search_params, request_made_at ';
       $stmt = $this->conn->prepare($query);
       $stmt->execute();
       $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
       $this->compare_result($result);
-      // return json_encode($result);
     }
 
     private function get_last_14_days_forecast_history_by_search_params($_search_params, $_request_made_at){
-      $query = 'SELECT * FROM ' . $this->table . ' WHERE date >= DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND search_params = :search_params AND request_made_at = :request_made_at';
+      $query = 'SELECT * FROM ' . $this->forecast_table . ' WHERE date >= DATE_SUB(CURDATE(), INTERVAL 14 DAY) AND search_params = :search_params AND request_made_at = :request_made_at';
       $stmt = $this->conn->prepare($query);
       $stmt->bindParam(':search_params', $_search_params, PDO::PARAM_STR);
       $stmt->bindParam(':request_made_at', $_request_made_at, PDO::PARAM_STR);
@@ -107,13 +107,32 @@
         foreach($result_new as $key => $value) {
           if($value->date == $result_old[$key]['date']) {
             if($value->day->condition->text != $result_old[$key]['weather_condition']) {
-              echo $result_old[$key]['id'] . ": different result";
-              // 
+              // Update weather condition
+              $this->update_weather_condition($result_old[$key]['id'], $value->day->condition->text);
+              // Insert alert
+              $this->insert_alert($result_old[$key]['id'], $result_old[$key]['weekday'], $result_old[$key]['weather_condition'], $value->day->condition->text);
             } 
           }
         }
       }
     }
 
+    private function update_weather_condition($_id, $_weather_condition) {
+      $query = 'UPDATE ' . $this->forecast_table . ' SET weather_condition = :weather_condition WHERE id = :id';
+      $stmt = $this->conn->prepare($query);
+      $stmt->bindParam(':weather_condition', $_weather_condition, PDO::PARAM_STR);
+      $stmt->bindParam(':id', $_id, PDO::PARAM_INT);
+      $stmt->execute();
+    }
+
+    private function insert_alert($_id, $_weekday, $_weather_condition_old, $_weather_condition_new) {
+      $this->summary = 'stating the change from ' . $_weather_condition_old . ' to ' . $_weather_condition_new . '.';
+      $query = 'INSERT INTO ' . $this->alert_table . ' (forecast_history_id, weekday, summary) VALUES (:forecast_history_id, :weekday, :summary)';
+      $stmt = $this->conn->prepare($query);
+      $stmt->bindParam(':forecast_history_id', $_id, PDO::PARAM_STR);
+      $stmt->bindParam(':weekday', $_weekday, PDO::PARAM_STR);
+      $stmt->bindParam(':summary', $this->summary, PDO::PARAM_STR);
+      $stmt->execute();
+    }
 
   }
