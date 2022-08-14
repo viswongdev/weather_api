@@ -26,6 +26,7 @@ Method: GET
 
 3. Cron job, check forecast changes and insert changes to alerts table
 Endpoint: /api/weather/cron.php
+The way to make the cron job running depends on the OS.
 
 ### Author
 Ho Yin Wong
